@@ -1,0 +1,140 @@
+---
+
+variables:
+  API_BASE: "${CI_API_V4_URL}/projects"
+  CONTAINER_REGISTRY_URL: opencast-registry.ctest.univie.ac.at
+  BUILDER_IMAGE: ffmpeg-builder:latest
+  RPM_IMAGE: ffmpeg-rpmbuild
+  CONTAINER_REGISTRY_USER: ${NEXUS_USER}
+  CONTAINER_REGISTRY_PASS: ${NEXUS_PASS}
+  YUM_REPO_URL: opencast-nexus.ctest.univie.ac.at/repository/yum-ustream
+  YUM_REPO_USER: ${NEXUS_USER}
+  YUM_REPO_PASS: ${NEXUS_PASS}
+  PACKAGE_NAME: whisperc
+  PACKAGE_REGISTRY_URL: "${API_BASE}/${CI_PROJECT_ID}/packages/generic"
+  PRIVATE_TOKEN: ${WHISPERC_ACCESS_TOKEN}
+
+
+stages:
+  - prepare
+  - build
+  - package
+  - release
+
+
+# .distros:
+#   tags:
+#     - ags
+#     - kubernetes
+#   needs:
+#     - job: build/ffmpeg
+#       artifacts: true
+#   parallel:
+#       matrix:
+#         - DISTRIBUTION: [el8,el9]
+#   only:
+#     - branches
+
+
+# .prepare:
+#   tags:
+#     - ags
+#     - shell
+#   stage: prepare
+#   script:
+#     - cp container/$CONTAINER_FILE $CONTAINER_FILE
+#     - podman login -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASS $CONTAINER_REGISTRY_URL
+#     - podman build -t $CONTAINER_REGISTRY_URL/$CONTAINER_NAME -f $CONTAINER_FILE
+#     - podman push $CONTAINER_REGISTRY_URL/$CONTAINER_NAME
+#   only:
+#     - branches
+
+
+# .release:
+#   tags:
+#     - ags
+#     - kubernetes
+#   before_script:
+#     - 'apk update'
+#     - 'apk add curl jq bash'
+#   only:
+#     - branches
+
+
+# clear-release:
+#   extends: .release
+#   stage: prepare
+#   image: docker.io/alpine
+#   script:
+#     - '${CI_PROJECT_DIR}/.gitlab-ci/delete-packages.sh'
+
+
+# prepare/builder/ffmpeg:
+#   extends: .prepare
+#   variables:
+#     CONTAINER_FILE: Containerfile.builder.debian
+#     CONTAINER_NAME: $BUILDER_IMAGE
+#   # only:
+#   #   changes:
+#   #     - container/$CONTAINER_FILE
+#   #     - build-deps.yml
+#   #     - scripts/*
+
+
+# prepare/builder/rpm:
+#   extends: .prepare
+#   variables:
+#     CONTAINER_FILE: Containerfile.rpmbuild.$DISTRIBUTION
+#     CONTAINER_NAME: $RPM_IMAGE:$DISTRIBUTION
+#   parallel:
+#       matrix:
+#         - DISTRIBUTION: [el8,el9]
+#   # only:
+#   #   changes:
+#   #     - container/$CONTAINER_FILE
+
+
+build/whispercpp:
+  image: $CONTAINER_REGISTRY_URL/$BUILDER_IMAGE
+  tags:
+    - ags
+    - kubernetes
+  stage: build
+  script:
+    - git clone https://github.com/ggerganov/whisper.cpp.git
+    - cd whisper.cpp
+    - make
+    - mkdir -p ${CI_PROJECT_DIR}/build
+    - mv main ${CI_PROJECT_DIR}/build/whispercpp
+  artifacts:
+    paths:
+      - build/whispercpp
+    expire_in: "30 days"
+  only:
+    - branches
+
+
+package/development:
+  extends: .distros
+  image: $CONTAINER_REGISTRY_URL/$RPM_IMAGE:$DISTRIBUTION
+  # image: quay.io/llt/ffmpeg-rpmbuild:$DISTRIBUTION
+  stage: package
+  script:
+    - cp build/whispercpp rpmbuild/
+    - cd rpmbuild
+    - rpmbuild --define "_topdir rpmbuild" --nodebuginfo -ba SPECS/whispercpp.spec
+  artifacts:
+    paths:
+      - ffmpeg_rpm/*.rpm
+
+
+# create-release:
+#   extends: .release
+#   stage: release
+#   image: registry.gitlab.com/gitlab-org/release-cli:latest
+#   script:
+#     - '${CI_PROJECT_DIR}/.gitlab-ci/upload.sh'
+#     - '${CI_PROJECT_DIR}/.gitlab-ci/create-release.sh'
+#   needs:
+#     - job: package/development
+#       artifacts: true
