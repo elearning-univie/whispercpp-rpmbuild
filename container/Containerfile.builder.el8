@@ -1,0 +1,35 @@
+FROM docker.io/rockylinux:8
+
+RUN dnf --setopt=tsflags=nodocs --setopt=install_weak_deps=false -y distro-sync \
+ && dnf -y install epel-release \
+ && /usr/bin/crb enable \
+ && dnf -y upgrade \
+ && dnf -y install  \
+        tar \
+        xz \
+        gzip \
+        bzip2 \
+        git \
+        autoconf \
+        automake \
+        bison \
+        cmake \
+        curl \
+        flex \
+        gcc-c++ \
+        gawk \
+        gcc \
+        gettext \
+        libtool \
+        make \
+        pkgconf-pkg-config \
+        yum-utils \
+        jq \
+        wget \
+        xz-libs \
+        dnf-plugins-core \
+        rpmdevtools \
+        rpmlint \
+        openblas-devel \
+        atlas-devel \
+ && dnf -y clean all

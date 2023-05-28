@@ -1,140 +1,117 @@
 ---
 
 variables:
-  API_BASE: "${CI_API_V4_URL}/projects"
   CONTAINER_REGISTRY_URL: opencast-registry.ctest.univie.ac.at
-  BUILDER_IMAGE: ffmpeg-builder:latest
-  RPM_IMAGE: ffmpeg-rpmbuild
+  BUILDER_IMAGE: whisper-builder
   CONTAINER_REGISTRY_USER: ${NEXUS_USER}
   CONTAINER_REGISTRY_PASS: ${NEXUS_PASS}
   YUM_REPO_URL: opencast-nexus.ctest.univie.ac.at/repository/yum-ustream
   YUM_REPO_USER: ${NEXUS_USER}
   YUM_REPO_PASS: ${NEXUS_PASS}
-  PACKAGE_NAME: whisperc
-  PACKAGE_REGISTRY_URL: "${API_BASE}/${CI_PROJECT_ID}/packages/generic"
-  PRIVATE_TOKEN: ${WHISPERC_ACCESS_TOKEN}
+  BUILD_MODE: static
+  RELEASE_VERSION: 6
 
 
 stages:
   - prepare
   - build
-  - package
-  - release
 
 
-# .distros:
-#   tags:
-#     - ags
-#     - kubernetes
-#   needs:
-#     - job: build/ffmpeg
-#       artifacts: true
-#   parallel:
-#       matrix:
-#         - DISTRIBUTION: [el8,el9]
-#   only:
-#     - branches
+.prepare:
+  tags:
+    - ags
+    - shell
+  stage: prepare
+  script:
+    - cd container
+    - podman login -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASS $CONTAINER_REGISTRY_URL
+    - podman build -t $CONTAINER_REGISTRY_URL/$CONTAINER_NAME -f $CONTAINER_FILE
+    - podman push $CONTAINER_REGISTRY_URL/$CONTAINER_NAME
+  only:
+    - branches
 
-
-# .prepare:
-#   tags:
-#     - ags
-#     - shell
-#   stage: prepare
-#   script:
-#     - cp container/$CONTAINER_FILE $CONTAINER_FILE
-#     - podman login -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASS $CONTAINER_REGISTRY_URL
-#     - podman build -t $CONTAINER_REGISTRY_URL/$CONTAINER_NAME -f $CONTAINER_FILE
-#     - podman push $CONTAINER_REGISTRY_URL/$CONTAINER_NAME
-#   only:
-#     - branches
-
-
-# .release:
-#   tags:
-#     - ags
-#     - kubernetes
-#   before_script:
-#     - 'apk update'
-#     - 'apk add curl jq bash'
-#   only:
-#     - branches
-
-
-# clear-release:
-#   extends: .release
-#   stage: prepare
-#   image: docker.io/alpine
-#   script:
-#     - '${CI_PROJECT_DIR}/.gitlab-ci/delete-packages.sh'
-
-
-# prepare/builder/ffmpeg:
+# prepare/builder/debian:
 #   extends: .prepare
 #   variables:
 #     CONTAINER_FILE: Containerfile.builder.debian
-#     CONTAINER_NAME: $BUILDER_IMAGE
+#     CONTAINER_NAME: $BUILDER_IMAGE:latest
 #   # only:
 #   #   changes:
 #   #     - container/$CONTAINER_FILE
-#   #     - build-deps.yml
-#   #     - scripts/*
+#   #     - container/scripts/*
 
-
-# prepare/builder/rpm:
-#   extends: .prepare
-#   variables:
-#     CONTAINER_FILE: Containerfile.rpmbuild.$DISTRIBUTION
-#     CONTAINER_NAME: $RPM_IMAGE:$DISTRIBUTION
-#   parallel:
-#       matrix:
-#         - DISTRIBUTION: [el8,el9]
-#   # only:
-#   #   changes:
-#   #     - container/$CONTAINER_FILE
+prepare/builder/el:
+  extends: .prepare
+  variables:
+    CONTAINER_FILE: Containerfile.builder.$DISTRIBUTION
+    CONTAINER_NAME: $BUILDER_IMAGE:$DISTRIBUTION
+  parallel:
+    matrix:
+      - DISTRIBUTION: [el8,el9]
+  # only:
+  #   changes:
+  #     - container/$CONTAINER_FILE
 
 
 build/whispercpp:
-  image: $CONTAINER_REGISTRY_URL/$BUILDER_IMAGE
+  image: $CONTAINER_REGISTRY_URL/$BUILDER_IMAGE:$DISTRIBUTION
   tags:
     - ags
     - kubernetes
   stage: build
   script:
-    - git clone https://github.com/ggerganov/whisper.cpp.git
-    - cd whisper.cpp
-    - make
-    - mkdir -p ${CI_PROJECT_DIR}/build
-    - mv main ${CI_PROJECT_DIR}/build/whispercpp
+    - 'dnf -y install openblas-devel atlas-devel'
+    - './build-rpm.sh whispercpp'
+    - '[[ ${BUILD_MODE} == "static" ]] && echo "Static build: Skip libwhisper library." || ./build-rpm.sh libwhisper'
+    - './upload.sh'
+  parallel:
+    matrix:
+      - DISTRIBUTION: [el8,el9]
   artifacts:
     paths:
-      - build/whispercpp
+      - build/*
     expire_in: "30 days"
   only:
     - branches
 
-
-package/development:
-  extends: .distros
-  image: $CONTAINER_REGISTRY_URL/$RPM_IMAGE:$DISTRIBUTION
-  # image: quay.io/llt/ffmpeg-rpmbuild:$DISTRIBUTION
-  stage: package
+build/whispercpp-cublas:
+  image: $CONTAINER_REGISTRY_URL/$BUILDER_IMAGE:$DISTRIBUTION
+  tags:
+    - ags
+    - kubernetes
+  stage: build
   script:
-    - cp build/whispercpp rpmbuild/
-    - cd rpmbuild
-    - rpmbuild --define "_topdir rpmbuild" --nodebuginfo -ba SPECS/whispercpp.spec
+    - 'dnf -y config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel${DISTRIBUTION//[!0-9]/}/x86_64/cuda-rhel${DISTRIBUTION//[!0-9]/}.repo'
+    - 'dnf -y module install nvidia-driver:latest-dkms'
+    - 'dnf -y install cuda openblas-devel atlas-devel'
+    - './build-rpm.sh whispercpp-cublas'
+    - '[[ ${BUILD_MODE} == "static" ]] && echo "Static build: Skip libwhisper-cublas library." || ./build-rpm.sh libwhisper-cublas'
+    - './upload.sh'
+  parallel:
+    matrix:
+      - DISTRIBUTION: [el8,el9]
   artifacts:
     paths:
-      - ffmpeg_rpm/*.rpm
+      - build/*
+    expire_in: "30 days"
+  only:
+    - branches
 
-
-# create-release:
-#   extends: .release
-#   stage: release
-#   image: registry.gitlab.com/gitlab-org/release-cli:latest
-#   script:
-#     - '${CI_PROJECT_DIR}/.gitlab-ci/upload.sh'
-#     - '${CI_PROJECT_DIR}/.gitlab-ci/create-release.sh'
-#   needs:
-#     - job: package/development
-#       artifacts: true
+build/models:
+  image: $CONTAINER_REGISTRY_URL/$BUILDER_IMAGE:$DISTRIBUTION
+  tags:
+    - ags
+    - kubernetes
+  stage: build
+  script:
+    - './build-model.sh ${MODEL_NAME}'
+    - './upload.sh'
+  parallel:
+    matrix:
+      - MODEL_NAME: [tiny,base,small,medium,large]
+        DISTRIBUTION: [el8,el9]
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH
+      when: manual
