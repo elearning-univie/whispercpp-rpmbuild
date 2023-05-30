@@ -1,4 +1,3 @@
-%define version 1.4.0
 %define debug_package %{nil}
 %define __strip /bin/true
 %define _prefix /usr
@@ -10,9 +9,8 @@ Summary:       C++ implemetataion of OpenAI's Whisper ASR model
 License:       MIT License
 Group:         Applications/Multimedia
 URL:           https://github.com/ggerganov/whisper.cpp
-#Source0:       https://github.com/ggerganov/whisper.cpp/archive/refs/tags/v%{version}.tar.gz
-Source0:       https://github.com/ggerganov/whisper.cpp/archive/refs/heads/master.zip
-BuildArch:     x86_64
+Source0:       https://github.com/ggerganov/whisper.cpp/archive/refs/tags/v%{version}.tar.gz
+BuildArch:     %arch
 BuildRequires: make cmake wget gcc gcc-c++
 Requires:      libwhisper-cublas
 
@@ -24,8 +22,8 @@ recognition (ASR) model. Shared library.
 rm -rf %{_sourcedir}
 mkdir -p %{_sourcedir}
 cd %{_sourcedir}
-wget https://github.com/ggerganov/whisper.cpp/archive/refs/heads/master.tar.gz
-tar -xzvf master.tar.gz --strip-components 1 -C %{_builddir}
+wget https://github.com/ggerganov/whisper.cpp/archive/refs/%{src_path}
+tar -xzf *.tar.gz --strip-components 1 -C %{_builddir}
 
 %build
 mkdir -p %{_builddir}/target

@@ -10,7 +10,7 @@ variables:
   YUM_REPO_PASS: ${NEXUS_PASS}
   BUILD_MODE: static
   RELEASE_VERSION: 6
-
+  VERSION: master
 
 stages:
   - prepare
@@ -60,10 +60,9 @@ build/whispercpp:
     - kubernetes
   stage: build
   script:
-    - 'dnf -y install openblas-devel atlas-devel'
-    - './build-rpm.sh whispercpp'
+    - './scripts/build-rpm.sh whispercpp'
     - '[[ ${BUILD_MODE} == "static" ]] && echo "Static build: Skip libwhisper library." || ./build-rpm.sh libwhisper'
-    - './upload.sh'
+    - './scripts/upload.sh'
   parallel:
     matrix:
       - DISTRIBUTION: [el8,el9]
@@ -81,12 +80,9 @@ build/whispercpp-cublas:
     - kubernetes
   stage: build
   script:
-    - 'dnf -y config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel${DISTRIBUTION//[!0-9]/}/x86_64/cuda-rhel${DISTRIBUTION//[!0-9]/}.repo'
-    - 'dnf -y module install nvidia-driver:latest-dkms'
-    - 'dnf -y install cuda openblas-devel atlas-devel'
-    - './build-rpm.sh whispercpp-cublas'
+    - './scripts/build-rpm.sh whispercpp-cublas'
     - '[[ ${BUILD_MODE} == "static" ]] && echo "Static build: Skip libwhisper-cublas library." || ./build-rpm.sh libwhisper-cublas'
-    - './upload.sh'
+    - './scripts/upload.sh'
   parallel:
     matrix:
       - DISTRIBUTION: [el8,el9]
@@ -104,8 +100,8 @@ build/models:
     - kubernetes
   stage: build
   script:
-    - './build-model.sh ${MODEL_NAME}'
-    - './upload.sh'
+    - './scripts/build-model.sh ${MODEL_NAME}'
+    - './scripts/upload.sh'
   parallel:
     matrix:
       - MODEL_NAME: [tiny,base,small,medium,large]

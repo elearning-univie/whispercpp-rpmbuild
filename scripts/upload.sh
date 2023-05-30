@@ -4,11 +4,8 @@ set -u
 set -e
 #set -x
 
-# working directory
+# artifacts directory
 RPM_ARTIFACTS_DIR=${CI_PROJECT_DIR}/build
-
-mkdir -p ${RPM_ARTIFACTS_DIR}
-find ${CI_PROJECT_DIR}/rpmbuild -name "*.rpm" -exec mv {} -t ${RPM_ARTIFACTS_DIR} \;
 
 # find upload rpm to yum repo
 RPM_ARTIFACTS=$(find ${RPM_ARTIFACTS_DIR} -name "*.rpm")
